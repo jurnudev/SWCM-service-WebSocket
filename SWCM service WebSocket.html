@@ -1,0 +1,286 @@
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SWCM service WebSocket Dashboard</title>
+<link rel="icon" type="image/png" href="sv.png">
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<style>
+:root {
+    --primary: #1a237e;
+    --secondary: #c0143f;
+    --accent: #00bcd4;
+    --success: #4caf50;
+    --danger: #f4363f;
+    --bg: #adca65;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    font-family: 'Kanit', sans-serif;
+    background: var(--bg);
+    margin: 0;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1100px;
+    margin: auto;
+}
+
+.card {
+    background: white;
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.logo {
+    width: 90px;
+    margin-bottom: 10px;
+}
+
+h1 {
+    margin: 5px 0;
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.subtitle {
+    color: var(--secondary);
+    font-size: 14px;
+}
+
+.section-title {
+    margin-bottom: 15px;
+    font-weight: 500;
+    color: var(--primary);
+    border-left: 5px solid var(--accent);
+    padding-left: 10px;
+}
+
+input, select {
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    font-family: 'Kanit', sans-serif;
+}
+
+button {
+    padding: 8px 15px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    color: white;
+    font-family: 'Kanit', sans-serif;
+    transition: 0.2s;
+}
+
+button:hover { opacity: 0.85; }
+
+.btn-connect { background: var(--success); }
+.btn-disconnect { background: var(--danger); }
+.btn-subscribe { background: var(--accent); }
+.btn-publish { background: var(--primary); }
+
+.flex {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.status {
+    font-weight: 500;
+    margin-bottom: 10px;
+}
+
+.status.connected { color: var(--success); }
+.status.disconnected { color: var(--danger); }
+
+#messages {
+    height: 260px;
+    overflow-y: auto;
+    background: #fafafa;
+    border-radius: 10px;
+    padding: 10px;
+    border: 1px solid #eee;
+}
+
+.message {
+    padding: 6px 8px;
+    font-size: 13px;
+    margin-bottom: 5px;
+    border-bottom: 1px solid #eee;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="header">
+    <img src="sv.png" class="logo" alt="SWCM Logo">
+    <h1>SWCM service WebSocket Dashboard</h1>
+    <div class="subtitle">Developer by SWCM</div>
+</div>
+
+<div class="card">
+<div id="status" class="status disconnected">
+<i class="fas fa-circle"></i> Disconnected
+</div>
+
+<div class="section-title">Connection Settings</div>
+<div class="flex">
+    Host <input id="host" value="service.smartbox89.com">
+    Port <input id="port" value="443" type="number">
+    ClientID <input id="clientId">
+    <button id="connect" class="btn-connect"><i class="fas fa-plug"></i> Connect</button>
+    <button id="disconnect" class="btn-disconnect" disabled>Disconnect</button>
+</div>
+</div>
+
+<div class="card">
+<div class="section-title">Subscribe</div>
+<div class="flex">
+    Topic <input id="topicSubscribe">
+    QoS 
+    <select id="qosSubscribe">
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+    </select>
+    <button id="subscribe" class="btn-subscribe" disabled>Subscribe</button>
+</div>
+</div>
+
+<div class="card">
+<div class="section-title">Publish</div>
+<div class="flex">
+    Topic <input id="topicPublish">
+    Message <input id="message">
+    QoS 
+    <select id="qosPublish">
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+    </select>
+    <button id="publish" class="btn-publish" disabled>Publish</button>
+</div>
+</div>
+
+<div class="card">
+<div class="section-title">Message Log</div>
+<div id="messages"></div>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+
+<script>
+const host = document.getElementById("host");
+const port = document.getElementById("port");
+const clientId = document.getElementById("clientId");
+const statusText = document.getElementById("status");
+const messages = document.getElementById("messages");
+
+const connectBtn = document.getElementById("connect");
+const disconnectBtn = document.getElementById("disconnect");
+const subscribeBtn = document.getElementById("subscribe");
+const publishBtn = document.getElementById("publish");
+
+clientId.value = "SWCM-" + Math.random().toString(36).substring(2,8);
+
+let client;
+
+function log(text){
+    const div = document.createElement("div");
+    div.className = "message";
+    div.innerHTML = "[" + new Date().toLocaleTimeString() + "] " + text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+}
+
+function setConnected(state){
+    statusText.className = state ? "status connected" : "status disconnected";
+    statusText.innerHTML = state ? '<i class="fas fa-circle"></i> Connected'
+                                 : '<i class="fas fa-circle"></i> Disconnected';
+    connectBtn.disabled = state;
+    disconnectBtn.disabled = !state;
+    subscribeBtn.disabled = !state;
+    publishBtn.disabled = !state;
+}
+
+connectBtn.onclick = () => {
+
+    client = new Paho.MQTT.Client(
+    host.value,
+    443,
+    "/mqtt",
+    clientId.value
+);
+
+    client.onConnectionLost = (res) => {
+        log("Connection lost: " + res.errorMessage);
+        setConnected(false);
+    };
+
+    client.onMessageArrived = (msg) => {
+        log("Received [" + msg.destinationName + "] (QoS " + msg.qos + "): " + msg.payloadString);
+    };
+
+    client.connect({
+        useSSL: true,
+        timeout: 5,
+        onSuccess: () => {
+            log("Connected via WSS");
+            setConnected(true);
+        },
+        onFailure: (err) => {
+            log("Connection Failed: " + err.errorMessage);
+        }
+    });
+};
+
+disconnectBtn.onclick = () => {
+    client.disconnect();
+    setConnected(false);
+    log("Disconnected");
+};
+
+subscribeBtn.onclick = () => {
+    const topic = document.getElementById("topicSubscribe").value;
+    const qos = Number(document.getElementById("qosSubscribe").value);
+    client.subscribe(topic, { qos: qos });
+    log("Subscribed to " + topic + " (QoS " + qos + ")");
+};
+
+publishBtn.onclick = () => {
+    const topic = document.getElementById("topicPublish").value;
+    const message = document.getElementById("message").value;
+    const qos = Number(document.getElementById("qosPublish").value);
+
+    const msg = new Paho.MQTT.Message(message);
+    msg.destinationName = topic;
+    msg.qos = qos;
+
+    client.send(msg);
+    log("Published to " + topic + " (QoS " + qos + "): " + message);
+};
+</script>
+
+</body>
+</html>
